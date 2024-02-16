@@ -1,5 +1,6 @@
 # genomics-csaw
-A(n unofficial) vignette for the csaw package in bioconductor
+A(n unofficial) vignette for the csaw package in bioconductor.
+
 Code is adapted from https://bioconductor.org/books/3.19/csawBook/annotation-and-visualization.html without permission.
 
 Citations:
