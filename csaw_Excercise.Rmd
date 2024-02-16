@@ -1,0 +1,108 @@
+---
+title: "csaw Exercise"
+author: "Dino de Raad"
+date: "2024-02-15"
+output: html_document
+---
+
+
+
+```{r install-bioconductor}
+
+
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("chipseqDBData")
+BiocManager::install("csaw")
+BiocManager::install("Gviz")
+
+```
+
+
+```{r load-packages}
+
+library(chipseqDBData)
+library(csaw)
+library(edgeR)
+library(Gviz)
+
+```
+
+```{r download-and-cache-data}
+
+tf.data <- NFYAData()
+tf.data <- head(tf.data, -1) # skip the input.
+bam.files <- tf.data$Path
+
+cell.type <- sub("NF-YA ([^ ]+) .*", "\\1", tf.data$Description)
+design <- model.matrix(~factor(cell.type))
+colnames(design) <- c("intercept", "cell.type")
+
+```
+
+```{r load-data}
+param <- readParam(minq=20)
+data <- windowCounts(bam.files, ext=110, width=10, param=param)
+```
+
+```{r filter-uninteresting-regions}
+
+binned <- windowCounts(bam.files, bin=TRUE, width=10000, param=param)
+keep <- filterWindowsGlobal(data, binned)$filter > log2(5)
+data <- data[keep,]
+
+```
+```{r calculate-normalization}
+
+data <- normFactors(binned, se.out=data)
+
+data
+
+```
+
+
+```{r identify-DB-windows}
+
+y <- asDGEList(data)
+y <- estimateDisp(y, design)
+fit <- glmQLFit(y, design, robust=TRUE)
+results <- glmQLFTest(fit)
+
+results$table
+
+```
+
+```{r multiple-testing}
+
+merged <- mergeResults(data, results$table, tol=1000L) #1000bp tolerance
+is.sig.region = merged$combined$FDR <= 0.05
+summary(is.sig.region)
+
+table(merged$combined$direction[is.sig.region])
+
+```
+```{r visualizations}
+
+cur.region <- GRanges("chr18", IRanges(77806807, 77807165))
+extractReads(bam.files[[1]], cur.region, param=param)
+
+collected <- vector("list", length(bam.files))
+for (i in seq_along(bam.files)) { 
+    reads <- extractReads(bam.files[[i]], cur.region, param=param)
+    adj.total <- data$totals[i]/1e6
+    pcov <- as(coverage(reads[strand(reads)=="+"])/adj.total, "GRanges")
+    ncov <- as(coverage(reads[strand(reads)=="-"])/adj.total, "GRanges")
+    ptrack <- DataTrack(pcov, type="histogram", lwd=0, fill=rgb(0,0,1,.4), 
+        ylim=c(0,1.1), name=tf.data$Name[i], col.axis="black", 
+        col.title="black")
+    ntrack <- DataTrack(ncov, type="histogram", lwd=0, fill=rgb(1,0,0,.4), 
+        ylim=c(0,1.1))
+    collected[[i]] <- OverlayTrack(trackList=list(ptrack,ntrack))
+}
+gax <- GenomeAxisTrack(col="black")
+plotTracks(c(gax, collected), from=start(cur.region), to=end(cur.region))
+
+```
+
+
